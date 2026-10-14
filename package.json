@@ -96,5 +96,8 @@
     "emdash": "1.2.0",
     "typescript": "^5.9.0",
     "@types/bun": "^1.2.0"
+  },
+  "bin": {
+    "dashcommerce-mercadopago-setup": "./scripts/setup.mjs"
   }
 }
