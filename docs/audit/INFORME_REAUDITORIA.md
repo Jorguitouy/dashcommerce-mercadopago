@@ -40,9 +40,27 @@ Cada hallazgo del plan de remediación se verificó de forma independiente con e
 |---|---|---|---|
 | P3-1 | **CI-003** — actions sin pin por SHA | `ci.yml:21,24`: `actions/checkout@11d5960a…` (v4.4.0) y `oven-sh/setup-bun@0c5077e5…` (v2.2.0), SHAs verificados vía `git ls-remote` contra los repos upstream | ✅ CERRADO |
 | P3-2 | **AUD-006** — sin auditoría de dependencias en CI | `ci.yml:34`: `bun audit \|\| true` (informativo; el árbol dev no se distribuye) | ✅ CERRADO |
-| P3-3 | **AUD-007** — tag + release notes al publicar | **PENDIENTE DEL ACTO DE PUBLICACIÓN** — el tag `v0.1.1` y las release notes se crean junto con `npm publish` (ver §D) | ⏳ EN ESPERA |
+| P3-3 | **AUD-007** — tag + release notes al publicar | ✅ CERRADO — tag `v0.1.1` pusheado; release público con notas del CHANGELOG: [releases/tag/v0.1.1](https://github.com/Jorguitouy/dashcommerce-mercadopago/releases/tag/v0.1.1) (verificado: isDraft=false) |
 | P3-4 | **AUD-008** — riesgo residual del redactor documentado | `docs/SECURITY_MODEL.md` §AUD-008: hallazgo, por qué es aceptable, mitigación operativa, estado | ✅ CERRADO |
-| P3-5 | Branch protection en GitHub | Configuración del repo (Settings → Branches), no del código — **requiere acción manual del owner** | ⏳ MANUAL |
+| P3-5 | Branch protection en GitHub | ✅ CERRADO — API PUT protection en master: required_status_checks `["test"]` (strict), allow_force_pushes=false, allow_deletions=false, enforce_admins=false (bypass owner mientras CI está bloqueado por billing) |
+
+## C.1 Evidencia post-publicación (npm, verificación E2E del artefacto real)
+
+Publicado el 2026-10-14 por **`astrodesing`** (jorgeferreirauy@gmail.com) — `npm view` confirma
+`latest: 0.1.1`. Verificación de instalación real desde el registry (directorio limpio,
+`npm install dashcommerce-mercadopago@0.1.1 --ignore-scripts`):
+
+| Verificación | Resultado |
+|---|---|
+| Instalación desde registry | OK — **0 vulnerabilidades** reportadas por npm audit del install |
+| API público (`dashcommerceWithMercadoPago`) | `function` — descriptor con id `dashcommerce`, entrypoint `dashcommerce-mercadopago/entry`, allowedHosts = Stripe + `api.mercadopago.com` |
+| `entry.createPlugin({})` (Node puro, sin bundler) | **69 rutas**: `checkout/webhook-mercadopago` ✅, `admin/mercadopago/settings` ✅, `checkout/webhook` del core preservada ✅ |
+| Token de publicación | Revocado de la máquina local tras el publish (expuesto en el chat); sesión previa restaurada |
+
+> Nota de seguridad: el token granular usado para el publish se pegó en texto plano en el
+> chat durante el proceso. Fue removido del `.npmrc` local inmediatamente después de la
+> publicación. **Acción pendiente del owner**: eliminarlo también desde la web de npm
+> ([Access Tokens](https://www.npmjs.com/settings/astrodesing/tokens)) por higiene.
 
 ## C. Verificación de suite e integridad (commit `b075faf`)
 
@@ -91,6 +109,6 @@ Las **5 condiciones formales de aptitud** del INFORME_FINAL están cumplidas:
 4. ✅ BUG-003 corregido (barrido de contadores) + CI-002 (permissions read).
 5. ✅ Suite completa verde (151 ≥ 117 + nuevos), typecheck 0, build OK, `npm pack` limpio.
 
-**Los 14 hallazgos de la auditoría integral están cerrados** (13 en código/docs/CI, 1 en espera del acto de publicación, 1 acción manual de repo settings). El proyecto pasa de "APTO CONDICIONADO" a **APTO para publicación** de v0.1.1.
+**Los 14 hallazgos de la auditoría integral están cerrados al 100%** (código, docs, CI, publicación npm con tag v0.1.1 + release, y branch protection del repo). El paquete `dashcommerce-mercadopago@0.1.1` está **publicado en npm** (latest) y verificado E2E desde el registry.
 
 **Alcance del dictamen**: igual que el INFORME_FINAL — no es una certificación de seguridad; cubre el código del plugin y su integración con `@dashcommerce/core@0.3.0` + `emdash@1.2.0` en la versión auditada. No cubre el despliegue del host, tráfico productivo real, ni PCI DSS (SAQ-A del comercio por separado).
