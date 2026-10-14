@@ -99,6 +99,6 @@
     "typescript": "^5.9.0"
   },
   "bin": {
-    "dashcommerce-mercadopago-setup": "./scripts/setup.mjs"
+    "dashcommerce-mercadopago-setup": "scripts/setup.mjs"
   }
 }
