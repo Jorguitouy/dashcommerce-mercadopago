@@ -112,20 +112,27 @@ body en el manifest interno). Test de tampering ahora falla como debe.
   prefijos y rechaza el sentinel enmascarado.
 - Tests verifican que errores nunca exponen secretos ni firmas esperadas.
 
-## 8. Tests (bun test, 75/75 PASS)
+## 8. Tests (bun test tests/, 151/151 PASS)
 
 ```
-tests/mercadopago/
-├── money.test.ts      — 20: exact decimal, CLP 0-dec, BHD 3-dec, malformed,
-│                        negative, NaN/Inf, safe-integer, round-trip
-├── signature.test.ts  — 15: valid sec/ms ts, tampered, expired, future,
-│                        malformed, wrong secret, non-hex, no-leak
-├── provider.test.ts   — 11: parse enriched, dedupe keys, fail-closed,
-│                        contract, currencies, formatAmount
-├── security.test.ts   — 14: open-redirect allowlist, UUID idempotency,
-│                        status mapping fail-closed
-└── webhook.test.ts    — 15: full pipeline mocked, binding checks,
-                        round-trip signEnrichedEvent→verifyWebhook
+tests/
+├── money.test.ts           — 20: exact decimal, CLP 0-dec, BHD 3-dec, malformed,
+│                             negative, NaN/Inf, safe-integer, round-trip
+├── money-properties.test.ts — property-based: montos aleatorios sin pérdida
+├── signature.test.ts       — HMAC manifest, tampered, expired, future, malformed,
+│                             wrong secret, non-hex, no-leak, MP omission rule
+├── provider.test.ts        — parse enriched, dedupe keys, fail-closed,
+│                             contract, currencies, formatAmount
+├── security.test.ts        — open-redirect allowlist por país, UUID idempotency,
+│                             status mapping fail-closed
+├── webhook.test.ts         — full pipeline mocked, binding checks,
+│                             round-trip signEnrichedEvent→verifyWebhook
+├── webhook-defensive.test.ts — malformed payloads, missing headers, errors
+├── refund-dedup.test.ts    — refund race, lock stealing, ownership
+├── concurrency.test.ts     — parallel refunds/dedup under CAS (fidelign-style KV)
+├── admin-settings.test.ts  — credential validation, masking, delete flag
+├── rate-limit-stress.test.ts — 30 req/min/IP windows + stale counter sweep
+└── contract.test.ts        — wrapper contracts (GAP-4/5/6)
 ```
 
 ## 9. Pendiente / limitaciones conocidas

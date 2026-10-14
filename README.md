@@ -10,7 +10,7 @@ One `bun add`. One line of config. Done.
 
 [![npm](https://img.shields.io/npm/v/dashcommerce-mercadopago.svg)](https://www.npmjs.com/package/dashcommerce-mercadopago)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-117%2F117-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-151%2F151-brightgreen.svg)](#testing)
 
 **English** · [Español](README.es.md) · [Português](README.pt.md)
 
@@ -34,8 +34,8 @@ DashCommerce store — no core modifications, no forks.
 
 - **Checkout Pro (Preferences API)** — the hosted checkout customers already
   know and trust across LATAM.
-- **17 currencies** — ARS, BRL, CLP, COP, MXN, PEN, UYU, BOB, PYG, plus USD
-  and EUR for cross-border sales.
+- **9 currencies** — ARS, BRL, CLP, COP, MXN, PEN, UYU, plus USD and EUR
+  for cross-border sales.
 - **Bank-grade webhook security** — HMAC-SHA256 signature validation with
   timestamp drift limits, IP rate limiting (30 req/min), replay protection
   via event deduplication, and fail-closed defaults.
@@ -120,10 +120,10 @@ only the credentials differ.
 
 ## Testing
 
-117 tests. Zero tolerance for money bugs.
+151 tests. Zero tolerance for money bugs.
 
 ```sh
-bun test
+bun test tests/
 ```
 
 | Suite | Covers |
@@ -131,13 +131,15 @@ bun test
 | money | Integer minor-unit math, rounding, round-trips |
 | money-properties | Property-based: random amounts never lose a cent |
 | provider | Capability gates, currency allowlist, status mapping |
-| security | No secret leakage, masked admin responses |
-| signature | HMAC manifest construction + verification round-trip |
+| security | No secret leakage, masked admin responses, checkout host allowlist per country |
+| signature | HMAC manifest construction + verification round-trip, MP omission rule |
 | webhook | Full notification pipeline, drift limits, replay protection |
 | webhook-defensive | Malformed payloads, missing headers, internal errors |
 | refund-dedup | Concurrent refund race, lock stealing, ownership |
+| concurrency | True parallel refunds/dedup under CAS with fidelign-style KV |
 | admin-settings | Credential validation, masking, delete flag |
-| rate-limit-stress | 30 req/min/IP window enforcement under load |
+| rate-limit-stress | 30 req/min/IP window enforcement under load + stale counter sweep |
+| contract | Refund/parse/createPlugin wrapper contracts (GAP-4/5/6) |
 
 ## Architecture
 

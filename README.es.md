@@ -10,7 +10,7 @@ Un `bun add`. Una línea de config. Listo.
 
 [![npm](https://img.shields.io/npm/v/dashcommerce-mercadopago.svg)](https://www.npmjs.com/package/dashcommerce-mercadopago)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-117%2F117-brightgreen.svg)](#pruebas)
+[![Tests](https://img.shields.io/badge/tests-151%2F151-brightgreen.svg)](#pruebas)
 
 [English](README.md) · **Español** · [Português](README.pt.md)
 
@@ -34,8 +34,8 @@ cualquier tienda DashCommerce — sin modificar el core, sin forks.
 
 - **Checkout Pro (API de Preferencias)** — el checkout hosted que los
   clientes de LATAM ya conocen y confían.
-- **17 monedas** — ARS, BRL, CLP, COP, MXN, PEN, UYU, BOB, PYG, más USD
-  y EUR para ventas cross-border.
+- **9 monedas** — ARS, BRL, CLP, COP, MXN, PEN, UYU, más USD y EUR
+  para ventas cross-border.
 - **Seguridad de webhooks grado bancario** — validación de firma
   HMAC-SHA256 con límite de drift de timestamp, rate limiting por IP
   (30 req/min), protección anti-replay vía deduplicación de eventos, y
@@ -123,10 +123,10 @@ producción — solo cambian las credenciales.
 
 ## Pruebas
 
-117 tests. Tolerancia cero a bugs de dinero.
+151 tests. Tolerancia cero a bugs de dinero.
 
 ```sh
-bun test
+bun test tests/
 ```
 
 | Suite | Cubre |
@@ -134,11 +134,12 @@ bun test
 | money | Matemática entera en minor units, redondeo, round-trips |
 | money-properties | Property-based: montos aleatorios nunca pierden un centavo |
 | provider | Capability gates, allowlist de monedas, mapeo de estados |
-| security | Sin fuga de secretos, respuestas admin enmascaradas |
-| signature | Construcción de manifest HMAC + verificación round-trip |
+| security | Sin fuga de secretos, respuestas admin enmascaradas, allowlist de hosts de checkout por país |
+| signature | Construcción de manifest HMAC + verificación round-trip, regla de omisión de MP |
 | webhook | Pipeline completo de notificaciones, límites de drift, anti-replay |
 | webhook-defensive | Payloads malformados, headers faltantes, errores internos |
 | refund-dedup | Carrera de reembolsos concurrentes, robo de locks, ownership |
+| concurrency | Reembolsos/dedup en paralelo real bajo CAS con KV estilo fidelign |
 | admin-settings | Validación de credenciales, masking, delete flag |
 | rate-limit-stress | Ventanas de 30 req/min/IP bajo carga |
 

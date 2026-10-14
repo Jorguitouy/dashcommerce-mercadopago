@@ -73,7 +73,7 @@ curl http://localhost:4324/_emdash/api/plugins/dashcommerce/checkout/mode
 bun scratch/sim-webhook.mjs 123456789012345
 
 # 4. Suite de regresión del plugin
-bun test tests/mercadopago/
+bun test tests/
 
 # 5. Typecheck
 bun run typecheck

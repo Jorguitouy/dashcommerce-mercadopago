@@ -56,7 +56,8 @@
   desde MP) — pero defense in depth exigía cerrarlo.
 - **Corrección**: `bodyHash` (SHA-256 del body) incluido en el manifest interno;
   `verifyWebhook` del adapter lo verifica. Test de tampering ahora falla.
-- **Regresión**: round-trip test verde; suite completa 75/75.
+- **Regresión**: round-trip test verde; suite completa verde (151/151 al
+  cierre del ciclo de remediación de la auditoría).
 
 ### H-2: Order de checks currency/amount (bajo → corregido)
 
@@ -151,7 +152,7 @@
 
 ## 5. Verificación continua
 
-- `bun test tests/` — 117 tests, suite de regresión del plugin.
+- `bun test tests/` — 151 tests, suite de regresión del plugin.
 - `bun run typecheck` — 0 errores.
 - `bun run build` — emite dist/ compilado (JS ESM + .d.ts), ejecutable
   en Node 20 puro sin TypeScript ni bundler (verificado con import real).
@@ -233,9 +234,32 @@ resueltos en el mismo ciclo:
   pero la rama default es `master` — los pushes a master no corrían CI.
 - **Corrección**: `branches: [master, main]`.
 
-### Nota sobre el claim "111 tests"
+### Nota sobre el claim de tests
 
-El README citaba 111 tests como métrica de la suite. La suite actual es
-**117 tests / 11 archivos** (los 6 nuevos de concurrencia cubren los
-hallazgos SEC-001/002). La ejecución real en este ciclo: 117 pass, 0 fail,
-2.807 aserciones. Los badges y READMEs fueron actualizados.
+El README citaba originalmente 111 tests como métrica de la suite. Tras el ciclo
+de remediación de la auditoría integral (P1 + P2), la suite actual es
+**151 tests / 12 archivos**: los 6 de concurrencia (SEC-001/002), los 19 de
+regresión P1 (allowlist por país, regla de omisión del manifest), el barrido de
+contadores (BUG-003) y los 12 de contrato del wrapper (GAP-4/5/6). La
+ejecución real en este ciclo: 151 pass, 0 fail. Los badges y READMEs fueron
+actualizados.
+
+### AUD-008 — Riesgo residual: el redactor de logs solo conoce secrets del plugin
+
+- **Hallazgo** (informativa, plataforma — fuera del alcance del plugin): el
+  redactor de logs de emdash (`secret-redactor.mjs`) solo registra como
+  redactables los valores que pasaron por `settings.set` del plugin. Un token
+  MP escrito **directamente en la base de datos** (por un script manual, una
+  restauración de backup, o un operador con acceso SQL) no estaría en la lista
+  del redactor y podría aparecer en claro en logs posteriores.
+- **Por qué es aceptable para este plugin**: el flujo soportado es
+  exclusivamente `POST admin/mercadopago/settings` (que valida prefijos
+  TEST-/APP_USR- y escribe vía `ctx.kv.set` → `settings.set`), por lo que todo
+  token gestionado por el plugin SÍ queda redactado. No existe un camino
+  documentado que escriba credenciales fuera de esa ruta.
+- **Mitigación operativa**: nunca escribas credenciales directamente en la DB.
+  Si un token se rotó manualmente por SQL, re-guárdalo una vez desde el admin
+  del plugin para que el redactor lo registre.
+- **Estado**: documentado como riesgo residual de plataforma (auditoría
+  integral 2026-10-14, hallazgo AUD-008); no requiere cambio de código en el
+  plugin.

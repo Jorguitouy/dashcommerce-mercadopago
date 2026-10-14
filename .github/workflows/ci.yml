@@ -5,19 +5,33 @@ on:
     branches: [master, main]
   pull_request:
 
+# Least privilege (audit CI-002): the default GITHUB_TOKEN can be write in
+# some repo configurations — this pipeline only needs to read the repo.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Pinned by commit SHA (audit CI-003): tags are mutable — a force-push
+      # to a tag would silently change what CI executes. SHAs verified via
+      # git ls-remote against the upstream repos (2026-10-14):
+      #   actions/checkout v4.4.0, oven-sh/setup-bun v2.2.0.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Informational only (audit AUD-006): the dev tree is not distributed,
+      # so advisories here do not affect consumers — but we want to see them.
+      - name: Dependency audit (informational)
+        run: bun audit || true
 
       - name: Typecheck
         run: bunx tsc --noEmit
@@ -27,4 +41,4 @@ jobs:
 
       - name: Test summary
         if: always()
-        run: echo "Tests: 111 expected across 10 files"
+        run: 'echo "Test files: $(ls tests/*.test.ts | wc -l)"'

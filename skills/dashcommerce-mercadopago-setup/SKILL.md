@@ -123,10 +123,10 @@ bun run dev
 
 ## Testing
 
-The repo's suite (111 tests) runs against the package sources:
+The repo's suite (151 tests) runs against the package sources:
 
 ```sh
-bun test
+bun test tests/
 ```
 
 Sandbox E2E: use `TEST-` credentials and MP test cards. Correlate payments by

@@ -1,7 +1,7 @@
 # Mercado Pago — Matriz de Pruebas
 
 > Cobertura de pruebas del plugin MP: cada caso con resultado verificado.
-> Fecha: 2026-10-13. Suite: `bun test tests/mercadopago/` (75/75 PASS).
+> Fecha: 2026-10-14. Suite: `bun test tests/` (151/151 PASS).
 
 ## 1. Unit tests — money.ts (20)
 

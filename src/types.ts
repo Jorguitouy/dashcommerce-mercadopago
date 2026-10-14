@@ -43,6 +43,12 @@ export interface PluginKV {
 	): Promise<{ applied: boolean }>;
 	/** Read with revision for CAS loops. Returns {value, revision} or null. */
 	getVersioned?(key: string): Promise<{ value: unknown; revision: string } | null>;
+	/**
+	 * List entries under a key prefix. Returns {key, value}[] where key is
+	 * plugin-relative (the emdash namespace prefix is already stripped).
+	 * Verified against emdash 1.2.0 dist (context-CvhgHgSH.mjs list()).
+	 */
+	list?(keyPrefix: string): Promise<{ key: string; value: unknown }[]>;
 }
 
 /** Sandboxed HTTP access (host-allowlisted fetch). */

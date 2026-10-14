@@ -116,3 +116,66 @@ describe("MP webhook rate limit — stress", () => {
 		expect(after.status).toBe(400); // not 429 — window rotated
 	});
 });
+
+// ---------------------------------------------------------------------------
+// BUG-003 regression (GAP-3): stale rate-limit counters must be swept.
+// emdash's plugin KV has no TTL — without a sweep, every IP×window counter
+// lives forever, and a spoofed-IP flood grows the options table unboundedly
+// (gradual DoS on the shared KV). The sweep runs on the FIRST request of a
+// new window for an IP (once per window — off the per-request hot path).
+// ---------------------------------------------------------------------------
+class FakeKVWithList extends FakeKV {
+	async list(keyPrefix: string): Promise<Array<{ key: string; value: unknown }>> {
+		const out: Array<{ key: string; value: unknown }> = [];
+		for (const [key, value] of this.store) {
+			if (key.startsWith(keyPrefix)) out.push({ key, value });
+		}
+		return out;
+	}
+}
+
+describe("MP webhook rate limit — stale counter sweep (BUG-003)", () => {
+	const IP = "203.0.113.7";
+	const PREFIX = `state:mpWebhookRate:${IP}:`;
+
+	test("first request of a new window sweeps counters from windows ≤ W-2 (list path)", async () => {
+		const kv = new FakeKVWithList();
+		const w = Math.floor(Date.now() / 60_000);
+		// Stale counters history left behind — these previously lived
+		// forever (no TTL in emdash KV).
+		kv.store.set(`${PREFIX}${w - 5}`, "30");
+		kv.store.set(`${PREFIX}${w - 4}`, "30");
+		kv.store.set(`${PREFIX}${w - 3}`, "30");
+		// First request in the current window → sweep triggers.
+		const result = await handler(ctxWithIp(IP, kv));
+		const { status } = await unwrap(result);
+		expect(status).toBe(400); // admitted (fails later on missing data.id)
+		// Stale counters are gone…
+		expect(kv.store.has(`${PREFIX}${w - 5}`)).toBe(false);
+		expect(kv.store.has(`${PREFIX}${w - 4}`)).toBe(false);
+		expect(kv.store.has(`${PREFIX}${w - 3}`)).toBe(false);
+		// …while the current window's counter is alive.
+		expect(kv.store.has(`${PREFIX}${w}`)).toBe(true);
+	});
+
+	test("keeps the previous window's counter (retention horizon is ≤ W-2)", async () => {
+		const kv = new FakeKVWithList();
+		const w = Math.floor(Date.now() / 60_000);
+		kv.store.set(`${PREFIX}${w - 1}`, "15");
+		const result = await handler(ctxWithIp(IP, kv));
+		const { status } = await unwrap(result);
+		expect(status).toBe(400);
+		// W-1 is within the retention horizon — NOT swept.
+		expect(kv.store.has(`${PREFIX}${w - 1}`)).toBe(true);
+	});
+
+	test("without list(): still deletes the W-2 counter (fallback path)", async () => {
+		const kv = new FakeKV(); // minimal KV — no list()
+		const w = Math.floor(Date.now() / 60_000);
+		kv.store.set(`${PREFIX}${w - 2}`, "30");
+		const result = await handler(ctxWithIp(IP, kv));
+		const { status } = await unwrap(result);
+		expect(status).toBe(400);
+		expect(kv.store.has(`${PREFIX}${w - 2}`)).toBe(false);
+	});
+});

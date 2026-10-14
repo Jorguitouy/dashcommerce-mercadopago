@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   admits exactly 30 (no lost increments). IP trust model documented:
   `cf-connecting-ip` (Cloudflare) preferred; `x-forwarded-for` is a
   documented fallback with spoofing caveats behind untrusted proxies.
+- **SEC-004** (integral audit): `buildManifest` now OMITS the
+  `request-id:` segment entirely when the webhook carries no
+  `x-request-id` header (previously it emitted an empty segment,
+  deviating from Mercado Pago's documented manifest construction).
+  Legitimate MP notifications without a request-id were being rejected
+  with 400 — an approved payment could exist without its order.
+  Sign and verify share the same builder, so the round-trip stays
+  consistent. Verified by tests/signature.test.ts (MP omission rule).
 
 ### Fixed
 
@@ -31,8 +39,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Node 20+ without a TypeScript-capable runtime or bundler (verified by
   importing `dist/money.js` and `dist/entry.js` in pure Node).
   Mirrors `@dashcommerce/core`'s own packaging pattern.
+- **BUG-002** (integral audit): Checkout host allowlist now includes the
+  productive Mercado Pago domains for all supported markets —
+  `www.mercadopago.{com.ar,com.br,com.mx,com.co,com.pe}` plus apex
+  forms, and Chile's special `mercadopago.cl` (no `.com`), plus
+  `sandbox.mercadopago.cl`. Previously only Uruguay's domains were
+  allowlisted, so the init_point redirect was rejected for merchants in
+  AR/BR/MX/CL/CO/PE — checkout was broken outside Uruguay. Verified by
+  a parametric test across 7 country TLDs × www/apex forms
+  (tests/security.test.ts).
+- **BUG-003** (integral audit): Stale webhook rate-limit counters are now
+  swept. emdash's plugin KV has no TTL, so every
+  `state:mpWebhookRate:<ip>:<window>` counter lived forever — a
+  spoofed-IP flood would grow the options table unboundedly (storage
+  DoS). The first request of each new window now opportunistically
+  deletes this IP's counters for windows ≤ W-2 via `kv.list(prefix)`
+  (bounded fallback without list support). Fire-and-forget: cleanup can
+  never fail an admitted request. Verified by tests/rate-limit-stress.test.ts.
 - **CI-001**: CI workflow now triggers on pushes to `master` (the
   default branch) in addition to `main`.
+
+### CI / Supply chain
+
+- **CI-002** (integral audit): workflow declares `permissions:
+  contents: read` — least privilege for the default GITHUB_TOKEN.
+- **CI-003** (integral audit): actions pinned by commit SHA
+  (`actions/checkout@11d5960a…` v4.4.0,
+  `oven-sh/setup-bun@0c5077e5…` v2.2.0) — tags are mutable.
+- **AUD-006** (integral audit): `bun audit` added to CI as an
+  informational step (the dev tree is not distributed).
+
+### Documentation
+
+- **DOC-001** (integral audit): currency claim corrected to the real 9
+  (ARS, BRL, CLP, COP, MXN, PEN, UYU + USD/EUR for cross-border) in all
+  three READMEs — the previous "17 currencies / all of LatAm" claim was
+  unsustainable for a financial package.
+- **DOC-002…007** (integral audit): all test metrics and paths updated
+  across READMEs, SKILL.md, TEST_MATRIX, OPERATIONS, ARCHITECTURE and
+  SECURITY_MODEL; the CI "Test summary" step no longer echoes hardcoded
+  (false) metrics.
+- **AUD-008** (integral audit): emdash log-redactor residual risk
+  documented in SECURITY_MODEL.md (secrets are only redacted if they
+  passed through the plugin's settings.set).
 
 ### Verified
 
@@ -41,8 +90,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `createSettingsAccess` → `encryptPluginSetting` (AES-GCM) for keys
   declared `type:"secret"`. Documentation now cites the exact files and
   functions as evidence.
-- Test suite: 117 tests / 11 files (6 new concurrency tests covering
-  the audit findings). 117 pass, 0 fail, 2,807 assertions.
+- Test suite: 151 tests / 12 files — 6 concurrency tests (SEC-001/002),
+  19 regression tests for the integral-audit P1 fixes (country
+  allowlist, MP manifest omission rule), 3 stale-counter sweep tests
+  (BUG-003), and 12 wrapper contract tests (refund without amount,
+  parseWebhookEvent defaults, createPlugin smoke — GAP-4/5/6).
+  151 pass, 0 fail, 2,870 assertions.
 
 ## [0.1.0] - 2026-10-14
 

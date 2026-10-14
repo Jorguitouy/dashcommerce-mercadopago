@@ -66,6 +66,59 @@ describe("buildManifest", () => {
 			"id:123abc;request-id:req-1;ts:1700000000;",
 		);
 	});
+
+	it("omits the request-id segment entirely when requestId is empty (SEC-004, MP spec)", () => {
+		// Official MP webhook-signature spec: "If any of these fields are
+		// missing from the incoming request, omit that entire segment
+		// completely rather than leaving it blank."
+		expect(buildManifest({ dataId: "123abc", requestId: "", ts: "1700000000" })).toBe(
+			"id:123abc;ts:1700000000;",
+		);
+	});
+});
+
+describe("verifyMercadoPagoSignature (missing x-request-id — SEC-004)", () => {
+	it("accepts a valid MP signature built WITHOUT the request-id segment", async () => {
+		// MP sends some notifications without x-request-id; the manifest it
+		// signs then omits the whole segment. Our verifier must reproduce the
+		// same manifest shape for the HMAC to match.
+		const ts = String(Math.floor(Date.now() / 1000));
+		const manifest = "id:12345678901;ts:" + ts + ";";
+		const v1 = await sign(manifest);
+		const result = await verifyMercadoPagoSignature({
+			signatureHeader: `ts=${ts},v1=${v1}`,
+			dataId: "12345678901",
+			requestId: "",
+			secret: SECRET,
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("rejects an empty-segment manifest when MP omitted the header (regression guard)", async () => {
+		// Guard: the OLD buggy behavior (manifest `id:…;request-id:;ts:…;`)
+		// must not verify against a real MP signature that omitted the
+		// segment — proves the fix, not just a new happy path.
+		const ts = String(Math.floor(Date.now() / 1000));
+		const mpManifest = "id:12345678901;ts:" + ts + ";";
+		const v1 = await sign(mpManifest);
+		const result = await verifyMercadoPagoSignature({
+			signatureHeader: `ts=${ts},v1=${v1}`,
+			dataId: "12345678901",
+			requestId: "should-not-be-here",
+			secret: SECRET,
+		});
+		expect(result.ok).toBe(false);
+	});
+
+	it("still accepts a valid signature when x-request-id IS present", async () => {
+		// Regression: the common path (header present) keeps working after
+		// the manifest-shape change.
+		const dataId = "12345678901";
+		const requestId = "webhook-req-001";
+		const header = await makeHeader({ dataId, requestId });
+		const result = await verifyMercadoPagoSignature({ signatureHeader: header, dataId, requestId, secret: SECRET });
+		expect(result.ok).toBe(true);
+	});
 });
 
 describe("verifyMercadoPagoSignature", () => {

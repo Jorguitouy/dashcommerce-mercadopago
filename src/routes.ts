@@ -101,6 +101,46 @@ function secretHint(value: string): string {
 const MP_WEBHOOK_RATE_LIMIT = 30;
 const MP_WEBHOOK_RATE_WINDOW_MS = 60_000;
 
+/**
+ * Best-effort sweep of this IP's stale rate-limit counters (windows ≤ W-2).
+ *
+ * WHY (BUG-003): emdash's plugin KV has NO TTL — every `state:mpWebhookRate:
+ * <ip>:<window>` counter lives forever unless deleted. A spoofed-IP flood
+ * (x-forwarded-for behind a non-CF proxy) would grow the options table
+ * unboundedly: gradual DoS on the shared KV. The core's cron only sweeps
+ * `lock:*` keys, so the plugin owns its garbage.
+ *
+ * HOW: runs once per IP×window — only on the FIRST request of a new window
+ * (when the current window's counter doesn't exist yet), so it stays off the
+ * per-request hot path. Uses kv.list(prefix) when available (full history
+ * cleanup); otherwise deletes just W-2 (bounded fallback — with the list
+ * path unavailable, W-2 is the oldest window that can still matter for
+ * debugging). Failures are swallowed: a sweep error must never 500 a
+ * webhook that would otherwise be admitted.
+ */
+async function sweepStaleRateCounters(
+	kv: PluginRouteContext["kv"],
+	ip: string,
+	windowStart: number,
+): Promise<void> {
+	try {
+		const prefix = `state:mpWebhookRate:${ip}:`;
+		if (typeof kv.list === "function") {
+			const entries = await kv.list(prefix);
+			for (const entry of entries) {
+				const rest = entry.key.slice(prefix.length);
+				if (!/^\d+$/.test(rest)) continue;
+				const entryWindow = Number(rest);
+				if (windowStart - entryWindow >= 2) await kv.delete(entry.key);
+			}
+		} else {
+			await kv.delete(`${prefix}${windowStart - 2}`);
+		}
+	} catch {
+		// Best-effort by design — never fail the request over cleanup.
+	}
+}
+
 async function webhookRateLimit(ctx: PluginRouteContext): Promise<ReturnType<typeof rawJson> | null> {
 	const ip =
 		ctx.request.headers.get("cf-connecting-ip") ??
@@ -118,7 +158,13 @@ async function webhookRateLimit(ctx: PluginRouteContext): Promise<ReturnType<typ
 				// First request in the window: exclusive create. A lost
 				// race (someone else inserted first) retries the loop.
 				const created = await kv.compareAndSet(key, null, 1);
-				if (created?.applied) return null;
+				if (created?.applied) {
+					// First request of a NEW window → sweep this IP's stale
+					// counters (BUG-003). Fire-and-forget: never block or
+					// fail the admitted request on cleanup.
+					void sweepStaleRateCounters(kv, ip, windowStart).catch(() => {});
+					return null;
+				}
 				continue;
 			}
 			const current = Number(versioned.value);
@@ -144,6 +190,11 @@ async function webhookRateLimit(ctx: PluginRouteContext): Promise<ReturnType<typ
 	const current = Number((await kv.get(key)) ?? 0);
 	if (Number.isFinite(current) && current >= MP_WEBHOOK_RATE_LIMIT) {
 		return rawJson({ error: "Too many requests" }, 429);
+	}
+	if (current === 0) {
+		// First request of a new window → sweep stale counters (BUG-003),
+		// fire-and-forget — same rationale as the CAS path.
+		void sweepStaleRateCounters(kv, ip, windowStart).catch(() => {});
 	}
 	await kv.set(key, String(current + 1));
 	return null;

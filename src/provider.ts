@@ -88,8 +88,27 @@ const MP_API_BASE = "https://api.mercadopago.com";
  * checkout into an open redirect.
  */
 const MP_CHECKOUT_HOSTS = new Set([
+	// Production hosts per country — MP's official doc: "The TLD of the
+	// init_point will automatically match the marketplace country of the
+	// Access Token owner". Both www and apex forms are allowed because
+	// init_point URLs have been observed with either.
 	"www.mercadopago.com.uy",
 	"mercadopago.com.uy",
+	"www.mercadopago.com.ar",
+	"mercadopago.com.ar",
+	"www.mercadopago.com.br",
+	"mercadopago.com.br",
+	"www.mercadopago.com.mx",
+	"mercadopago.com.mx",
+	// CL is the special case: NO `.com` — the Chilean checkout domain is
+	// mercadopago.cl (verified against MP's official domains list).
+	"www.mercadopago.cl",
+	"mercadopago.cl",
+	"www.mercadopago.com.co",
+	"mercadopago.com.co",
+	"www.mercadopago.com.pe",
+	"mercadopago.com.pe",
+	// Generic MP hosts (served for some account configurations).
 	"www.mercadopago.com",
 	"mercadopago.com",
 	"www.mercadolibre.com",
@@ -102,6 +121,8 @@ const MP_CHECKOUT_HOSTS = new Set([
 	"sandbox.mercadopago.com.ar",
 	"sandbox.mercadopago.com.br",
 	"sandbox.mercadopago.com.mx",
+	// CL sandbox follows the same no-.com rule as production.
+	"sandbox.mercadopago.cl",
 	"sandbox.mercadopago.com.cl",
 	"sandbox.mercadopago.com.co",
 	"sandbox.mercadopago.com.pe",

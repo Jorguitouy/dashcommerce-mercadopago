@@ -69,7 +69,13 @@ export function buildManifest(params: {
 }): string {
 	// MP requires data.id to be lowercase in the manifest.
 	const id = params.dataId.toLowerCase();
-	const base = `id:${id};request-id:${params.requestId};ts:${params.ts};`;
+	// MP's official webhook-signature spec: "If any of these fields (data.id
+	// or x-request-id) are missing from the incoming request, omit that
+	// entire segment completely rather than leaving it blank." An empty
+	// `request-id:;` segment produces a different HMAC and would reject
+	// legitimate MP notifications that arrive without x-request-id.
+	const requestIdSegment = params.requestId === "" ? "" : `request-id:${params.requestId};`;
+	const base = `id:${id};${requestIdSegment}ts:${params.ts};`;
 	return params.bodyHash !== undefined ? `${base}body:${params.bodyHash};` : base;
 }
 

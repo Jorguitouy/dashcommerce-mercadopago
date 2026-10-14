@@ -39,6 +39,37 @@ describe("validateCheckoutUrl (open-redirect protection)", () => {
 	});
 });
 
+describe("validateCheckoutUrl (BUG-002 regression — production init_point per country)", () => {
+	// MP serves checkout on the TLD matching the Access Token owner's country
+	// (official doc: "The TLD of the init_point will automatically match the
+	// marketplace country"). CL is the notable special case: `mercadopago.cl`,
+	// no `.com`. Both www and apex forms appear in real init_point URLs.
+	const COUNTRY_HOSTS: Array<[string, string[]]> = [
+		["AR", ["www.mercadopago.com.ar", "mercadopago.com.ar"]],
+		["BR", ["www.mercadopago.com.br", "mercadopago.com.br"]],
+		["MX", ["www.mercadopago.com.mx", "mercadopago.com.mx"]],
+		["CL", ["www.mercadopago.cl", "mercadopago.cl"]],
+		["CO", ["www.mercadopago.com.co", "mercadopago.com.co"]],
+		["PE", ["www.mercadopago.com.pe", "mercadopago.com.pe"]],
+		["UY", ["www.mercadopago.com.uy", "mercadopago.com.uy"]],
+	];
+
+	for (const [country, hosts] of COUNTRY_HOSTS) {
+		for (const host of hosts) {
+			it(`accepts ${country} production init_point on ${host}`, () => {
+				const url = `https://${host}/checkout/v1/redirect?pref_id=123`;
+				expect(validateCheckoutUrl(url)).not.toBeNull();
+			});
+		}
+	}
+
+	it("still rejects lookalike country TLDs (phishing)", () => {
+		expect(validateCheckoutUrl("https://www.mercadopago.com.ar.evil.com/checkout")).toBeNull();
+		expect(validateCheckoutUrl("https://mercadopago.cl.evil.com/checkout")).toBeNull();
+		expect(validateCheckoutUrl("https://evil-mercadopago.com.ar/checkout")).toBeNull();
+	});
+});
+
 describe("orderCreateIdempotencyKey", () => {
 	it("is stable for the same draft id", () => {
 		const a = orderCreateIdempotencyKey("14ee623815acc3f1644a77c647f46e04");
