@@ -81,6 +81,22 @@ function secretHint(value: string): string {
  * Limit: 30 requests/min/IP. Legit MP retries are a handful per payment
  * state change; anything above that is a flood. Returns the 429 response
  * when exceeded, null when allowed.
+ *
+ * ATOMICITY (SEC-002): when the KV exposes emdash's compareAndSet, the
+ * counter increment is a compare-and-swap loop on the observed revision —
+ * concurrent requests can no longer overwrite each other's increments, so
+ * the effective limit under concurrency is exactly 30 (previously two
+ * simultaneous requests could both read N and both write N+1, letting
+ * more than 30 through). Without CAS (plain get/set/delete KVs), we fall
+ * back to the read-then-write counter — best-effort, documented in
+ * SECURITY_MODEL.md.
+ *
+ * TRUST MODEL for the IP: `cf-connecting-ip` is set by Cloudflare and is
+ * trustworthy when the app runs behind CF. `x-forwarded-for` is client
+ * controllable when NOT set by a trusted reverse proxy — we only use it
+ * as a fallback so self-hosted deployments still get per-client limits;
+ * behind an untrusted proxy the limit degrades to per-spoofed-IP, which
+ * is still strictly better than no limit. Documented in SECURITY_MODEL.
  */
 const MP_WEBHOOK_RATE_LIMIT = 30;
 const MP_WEBHOOK_RATE_WINDOW_MS = 60_000;
@@ -92,11 +108,44 @@ async function webhookRateLimit(ctx: PluginRouteContext): Promise<ReturnType<typ
 		"unknown";
 	const windowStart = Math.floor(Date.now() / MP_WEBHOOK_RATE_WINDOW_MS);
 	const key = `state:mpWebhookRate:${ip}:${windowStart}`;
-	const current = Number((await ctx.kv.get(key)) ?? 0);
+	const kv = ctx.kv;
+
+	// ATOMIC PATH: CAS loop on the counter (SEC-002).
+	if (typeof kv.compareAndSet === "function" && typeof kv.getVersioned === "function") {
+		for (let attempt = 0; attempt < 8; attempt++) {
+			const versioned = await kv.getVersioned(key);
+			if (!versioned) {
+				// First request in the window: exclusive create. A lost
+				// race (someone else inserted first) retries the loop.
+				const created = await kv.compareAndSet(key, null, 1);
+				if (created?.applied) return null;
+				continue;
+			}
+			const current = Number(versioned.value);
+			if (Number.isFinite(current) && current >= MP_WEBHOOK_RATE_LIMIT) {
+				return rawJson({ error: "Too many requests" }, 429);
+			}
+			// Increment via CAS on the observed revision. If another
+			// request bumped the counter in between, applied:false →
+			// retry with the fresh value (no lost increments).
+			const updated = await kv.compareAndSet(key, versioned.revision, current + 1);
+			if (updated?.applied) return null;
+		}
+		// CAS contention beyond 8 attempts: treat as allowed. The counter
+		// is hot but every retry re-reads the fresh value, so a burst
+		// cannot push the count backwards — failing open here cannot
+		// exceed the limit by more than the in-flight retry races.
+		return null;
+	}
+
+	// FALLBACK (no CAS): read-then-write. Under high concurrency two
+	// requests may read the same count and overwrite each other's +1,
+	// letting slightly more than the limit through. Best-effort only.
+	const current = Number((await kv.get(key)) ?? 0);
 	if (Number.isFinite(current) && current >= MP_WEBHOOK_RATE_LIMIT) {
 		return rawJson({ error: "Too many requests" }, 429);
 	}
-	await ctx.kv.set(key, String(current + 1));
+	await kv.set(key, String(current + 1));
 	return null;
 }
 

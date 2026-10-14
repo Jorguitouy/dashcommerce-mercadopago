@@ -29,13 +29,17 @@
  * the MP routes/settings live inside it via the wrapper entrypoint.
  */
 import { dashcommerce } from "@dashcommerce/core";
+import type { PluginDescriptor } from "emdash";
 
 /**
  * Create the DashCommerce plugin descriptor WITH Mercado Pago support.
  *
  * Accepts the same options as `dashcommerce()` (currently just `id`).
+ * The return type is annotated as emdash's PluginDescriptor (rather than
+ * inferred) so the emitted index.d.ts can name it — the underlying
+ * descriptor's admin/storage field types are not exported by emdash.
  */
-export function dashcommerceWithMercadoPago(options: { id?: string } = {}) {
+export function dashcommerceWithMercadoPago(options: { id?: string } = {}): PluginDescriptor {
 	const base = dashcommerce(options);
 	return {
 		...base,

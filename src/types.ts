@@ -11,11 +11,38 @@
  * so the wrapper compiles against the public surface only.
  */
 
-/** KV access available to plugin routes (subset we rely on). */
+/**
+ * KV access available to plugin routes (subset we rely on).
+ *
+ * The compareAndSet/getVersioned/compareAndDelete trio is emdash's ATOMIC
+ * KV primitive set (verified against emdash 1.2.0 dist, OptionsRepository):
+ *   - compareAndSet(key, null, v)  → INSERT … ON CONFLICT DO NOTHING
+ *     (database-atomic exclusive creation)
+ *   - compareAndSet(key, rev, v)   → UPDATE … WHERE revision = rev
+ *     (database-atomic compare-and-swap)
+ *   - compareAndDelete(key, rev)   → DELETE … WHERE revision = rev
+ *
+ * They are OPTIONAL here: unit tests and exotic runtimes may provide only
+ * the plain get/set/delete subset, in which case the refund lock and the
+ * rate limiter degrade to their documented best-effort fallbacks.
+ */
 export interface PluginKV {
 	get(key: string): Promise<unknown>;
 	set(key: string, value: unknown): Promise<void>;
 	delete(key: string): Promise<void>;
+	/** Atomic compare-and-swap. Returns {applied, revision?} (emdash shape). */
+	compareAndSet?(
+		key: string,
+		expectedRevision: string | null,
+		value: unknown,
+	): Promise<{ applied: boolean; revision?: string }>;
+	/** Atomic conditional delete. Returns {applied} (emdash shape). */
+	compareAndDelete?(
+		key: string,
+		expectedRevision: string,
+	): Promise<{ applied: boolean }>;
+	/** Read with revision for CAS loops. Returns {value, revision} or null. */
+	getVersioned?(key: string): Promise<{ value: unknown; revision: string } | null>;
 }
 
 /** Sandboxed HTTP access (host-allowlisted fetch). */

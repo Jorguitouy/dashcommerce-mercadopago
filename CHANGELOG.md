@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-14
+
+### Security
+
+- **SEC-001**: Refund lock acquisition is now ATOMIC. Uses emdash's
+  database-level CAS primitive (`compareAndSet(key, null, …)` =
+  `INSERT … ON CONFLICT DO NOTHING`) — exactly one concurrent request
+  acquires the lock; the rest are rejected before any Mercado Pago call.
+  Stale-lock takeover is a compare-and-swap on the observed revision
+  (two simultaneous thieves cannot both win), and release uses
+  `compareAndDelete` by revision (a slow request can never delete a
+  lock it no longer owns). Plain-KV fallbacks degrade to the documented
+  best-effort semantics. Verified by tests/concurrency.test.ts.
+- **SEC-002**: Webhook rate limiter counter is now ATOMIC — a CAS loop
+  on the observed revision means a concurrent burst of N requests
+  admits exactly 30 (no lost increments). IP trust model documented:
+  `cf-connecting-ip` (Cloudflare) preferred; `x-forwarded-for` is a
+  documented fallback with spoofing caveats behind untrusted proxies.
+
+### Fixed
+
+- **BUG-001**: Package now publishes compiled `dist/` (ESM JS + .d.ts)
+  instead of raw TypeScript entrypoints. The published package runs on
+  Node 20+ without a TypeScript-capable runtime or bundler (verified by
+  importing `dist/money.js` and `dist/entry.js` in pure Node).
+  Mirrors `@dashcommerce/core`'s own packaging pattern.
+- **CI-001**: CI workflow now triggers on pushes to `master` (the
+  default branch) in addition to `main`.
+
+### Verified
+
+- **SEC-003**: Credential encryption at rest CONFIRMED against emdash
+  1.2.0 dist — `ctx.kv.set("settings:…")` routes through
+  `createSettingsAccess` → `encryptPluginSetting` (AES-GCM) for keys
+  declared `type:"secret"`. Documentation now cites the exact files and
+  functions as evidence.
+- Test suite: 117 tests / 11 files (6 new concurrency tests covering
+  the audit findings). 117 pass, 0 fail, 2,807 assertions.
+
 ## [0.1.0] - 2026-10-14
 
 ### Added

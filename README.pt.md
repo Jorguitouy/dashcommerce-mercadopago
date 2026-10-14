@@ -10,7 +10,7 @@ Um `bun add`. Uma linha de config. Pronto.
 
 [![npm](https://img.shields.io/npm/v/dashcommerce-mercadopago.svg)](https://www.npmjs.com/package/dashcommerce-mercadopago)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-111%2F111-brightgreen.svg)](#testes)
+[![Tests](https://img.shields.io/badge/tests-117%2F117-brightgreen.svg)](#testes)
 
 [English](README.md) · [Español](README.es.md) · **Português**
 
@@ -40,8 +40,9 @@ qualquer loja DashCommerce — sem modificar o core, sem forks.
   HMAC-SHA256 com limite de drift de timestamp, rate limiting por IP
   (30 req/min), proteção anti-replay via deduplicação de eventos, e defaults
   fail-closed.
-- **Reembolsos idempotentes** — locks distribuídos em KV previnem reembolsos
-  duplicados quando um admin dá clique duplo.
+- **Reembolsos race-safe** — locks atômicos em KV (CAS a nível de banco de
+  dados) previnem reembolsos duplicados concorrentes; comprovado por testes
+  de concorrência dedicados.
 - **Segurança monetária** — aritmética inteira exclusivamente em minor units.
   Nenhum float nunca toca um preço. Testado com property-based tests.
 - **Expiração alinhada** — as preferências de pagamento expiram junto com o
@@ -121,7 +122,7 @@ e produção — só as credenciais mudam.
 
 ## Testes
 
-111 testes. Tolerância zero a bugs de dinheiro.
+117 testes. Tolerância zero a bugs de dinheiro.
 
 ```sh
 bun test
@@ -173,8 +174,11 @@ settings.
 - Valor e moeda são revalidados server-side em cada notificação — uma
   preferência adulterada não pode cobrar a mais nem a menos.
 - Estados de pagamento desconhecidos **nunca** são tratados como sucesso.
-- Reembolsos pegam um lock KV por referência de pagamento; clique duplo
-  concorrente não pode duplicar o reembolso.
+- Reembolsos pegam um lock KV atômico por referência de pagamento (CAS a
+  nível de banco de dados); clique duplo concorrente não pode duplicar o
+  reembolso, e um request lento jamais apaga um lock que já não é seu.
+  Comprovado por tests/concurrency.test.ts (dois reembolsos simultâneos
+  → exatamente um chega ao Mercado Pago).
 - Credenciais são armazenadas criptografadas, mascaradas em respostas admin
   (`••••`), e nunca logadas.
 

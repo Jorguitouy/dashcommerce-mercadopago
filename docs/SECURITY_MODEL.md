@@ -142,12 +142,100 @@
 2. **Ventana replay 5 min**: MP reenvía notificaciones con ts fresco, así que
    la ventana no rompe reintentos legítimos. No sustituye la idempotencia
    (capas 1-2), es defensa adicional.
-3. **Sin límite de rate propio**: emdash/infra debe rate-limitar la ruta
-   pública. La validación de firma es barata (sin llamadas externas si falla).
+3. **Rate limiting en capas**: este plugin aplica su PROPIO límite
+   (30 req/min/IP, contador atómico CAS — ver H-6) ANTES de cualquier
+   validación costosa. La validación de firma es barata (sin llamadas
+   externas si falla). Se RECOMIENDA además un rate limit de borde en
+   la infraestructura (WAF/CDN) como capa exterior — el límite propio
+   no sustituye protección DDoS volumétrica de red.
 
 ## 5. Verificación continua
 
-- `bun test tests/mercadopago/` — 75 tests, suite de regresión del plugin.
+- `bun test tests/` — 117 tests, suite de regresión del plugin.
 - `bun run typecheck` — 0 errores.
+- `bun run build` — emite dist/ compilado (JS ESM + .d.ts), ejecutable
+  en Node 20 puro sin TypeScript ni bundler (verificado con import real).
 - E2E: e2e-full-checkout.mjs (carrito→preferencia), sim-webhook.mjs (firma),
   replay-test.mjs (10x), concurrent-test.mjs (5x).
+
+## 6. Auditoría externa (2026-10-14) — hallazgos y resolución
+
+Una auditoría independiente de solo lectura sobre el repositorio público
+identificó cinco hallazgos. Todos fueron verificados contra el código y
+resueltos en el mismo ciclo:
+
+### SEC-001 — Adquisición del refund lock no atómica (alta → CORREGIDO)
+
+- **Hallazgo**: el lock usaba check-then-write separado (leer lock →
+  comprobar antigüedad → escribir). Dos solicitudes concurrentes podían
+  leer ambas "sin lock" y continuar hacia la API de reembolsos → doble
+  reembolso parcial. El takeover de locks stale (30s) podía además robar
+  el lock de un request aún vivo.
+- **Corrección**: adquisición ATÓMICA con las primitivas CAS de emdash
+  (`compareAndSet(key, null, v)` = `INSERT … ON CONFLICT DO NOTHING`
+  a nivel base de datos — verificado contra emdash 1.2.0 dist,
+  OptionsRepository). Exactamente un request concurrente adquiere; el
+  resto recibe `applied:false` y es rechazado. El takeover de locks
+  stale es ahora un CAS sobre la revisión observada: dos ladrones
+  simultáneos no pueden ganar ambos. El release usa `compareAndDelete`
+  por revisión — un request lento jamás borra el lock de su reemplazo.
+- **Fallback**: KVs sin CAS (tests, runtimes exóticos) degradan al
+  best-effort documentado. El KV de producción de emdash SIEMPRE
+  provee CAS.
+- **Evidencia**: tests/concurrency.test.ts — dos refunds simultáneos
+  → exactamente 1 llega a MP; dos thieves simultáneos → 1 gana;
+  release con revisión no borra lock ajeno.
+
+### SEC-002 — Contador del rate limiter no atómico (media → CORREGIDO)
+
+- **Hallazgo**: el contador 30/min usaba read-then-write; bajo
+  concurrencia varios requests leían el mismo valor y sobrescribían
+  sus incrementos → límite efectivo > 30.
+- **Corrección**: loop CAS sobre la revisión observada — cada incremento
+  perdido se reintenta con el valor fresco. Bajo un burst concurrente
+  el límite efectivo es EXACTAMENTE 30.
+- **Trust model IP**: `cf-connecting-ip` (Cloudflare, confiable tras CF)
+  → `x-forwarded-for` (solo tras proxy reverso confiable; spoofable en
+  su defecto — degradación documentada, mejor que sin límite) → "unknown".
+- **Evidencia**: tests/concurrency.test.ts — burst concurrente de 60
+  → exactamente 30 admitidos, contador final exactamente 30.
+
+### SEC-003 — Cifrado de credenciales en reposo (verificado, SIN cambio)
+
+- **Hallazgo**: la documentación afirmaba cifrado AES-GCM pero el código
+  escribe con `ctx.kv.set(...)` directo — había que verificar que emdash
+  realmente cifra.
+- **Verificación**: emdash 1.2.0 dist, `context-CvhgHgSH.mjs`
+  `createKVAccess`: TODO acceso KV con prefijo `settings:` se
+  redirige a `createSettingsAccess` → `encodePluginSettingValue` →
+  `encryptPluginSetting` (AES-GCM, EMDASH_ENCRYPTION_KEY) para claves
+  declaradas `type:"secret"` en el settingsSchema del plugin. La
+  escritura `ctx.kv.set("settings:mercadopagoSecretKey", …)` SÍ se
+  cifra en reposo. La documentación era correcta; ahora cita el archivo
+  y funciones exactos como evidencia.
+
+### BUG-001 — Paquete publicaba TypeScript con engines node>=20 (bloqueante → CORREGIDO)
+
+- **Hallazgo**: main/types/exports apuntaban a .ts directo; Node 20 no
+  ejecuta TypeScript nativo → el paquete instalado podía no funcionar
+  en los entornos prometidos.
+- **Corrección**: build a `dist/` compilado (tsc, JS ESM + .d.ts),
+  exports apuntan a dist. Los imports relativos ya usaban extensión
+  .js (estilo ESM de Node), así que el código emitido es ejecutable
+  directamente. VERIFICADO con import real en Node puro:
+  `dist/money.js` y `dist/entry.js` importan y ejecutan sin bundler.
+- **Nota**: `@dashcommerce/core` usa el mismo patrón (dist/ para
+  runtime, src .ts solo para componentes Astro UI).
+
+### CI-001 — Workflow CI no disparaba en la rama default (trivial → CORREGIDO)
+
+- **Hallazgo**: `.github/workflows/ci.yml` tenía `push: branches:[main]`
+  pero la rama default es `master` — los pushes a master no corrían CI.
+- **Corrección**: `branches: [master, main]`.
+
+### Nota sobre el claim "111 tests"
+
+El README citaba 111 tests como métrica de la suite. La suite actual es
+**117 tests / 11 archivos** (los 6 nuevos de concurrencia cubren los
+hallazgos SEC-001/002). La ejecución real en este ciclo: 117 pass, 0 fail,
+2.807 aserciones. Los badges y READMEs fueron actualizados.

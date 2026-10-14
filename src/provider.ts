@@ -529,17 +529,22 @@ export const mercadopagoProvider: PaymentProvider = {
 	 *     the first refund has committed.
 	 *  2. THIS lock — catches CONCURRENT double-clicks/retries while an MP
 	 *     refund call for the same payment is in flight (the 1-3s window).
+	 *     With emdash's production KV the acquisition is ATOMIC
+	 *     (compareAndSet → INSERT … ON CONFLICT DO NOTHING): exactly one
+	 *     concurrent caller acquires; the rest are rejected. See
+	 *     acquireRefundLock() for the full semantics.
 	 *  3. MP: rejects refunds exceeding the payment's remaining amount —
 	 *     final backstop.
 	 *
-	 * Lock semantics (KV is not transactional, so all best-effort):
+	 * Lock semantics:
 	 *  - Value: { at: ISO timestamp, refundRequestId }.
 	 *  - A lock older than MP_REFUND_LOCK_STALE_MS (crash leftover) is
-	 *    stolen: availability over strict mutual exclusion. The steal
-	 *    window is far narrower than the double-click race it closes.
-	 *  - Released in finally ONLY if still owned by us (refundRequestId
-	 *    matches), so a stolen lock isn't deleted out from under its new
-	 *    owner.
+	 *    stolen — availability over strict mutual exclusion. The steal is
+	 *    itself a compare-and-swap on the observed revision, so two
+	 *    would-be thieves cannot both win.
+	 *  - Released in finally via compareAndDelete on OUR revision (or
+	 *    ownership-checked delete in the fallback), so a stolen lock is
+	 *    never deleted out from under its new owner.
 	 */
 	async refund(
 		ctx: PaymentProviderRuntimeContext,
@@ -565,27 +570,30 @@ export const mercadopagoProvider: PaymentProvider = {
 		}
 
 		const lockKey = `mp:refund:lock:${input.paymentReference}`;
-		const existing = parseRefundLock(await kv.get(lockKey));
-		if (existing && Date.now() - existing.at < MP_REFUND_LOCK_STALE_MS) {
+		const lockValue = {
+			at: new Date().toISOString(),
+			refundRequestId,
+		};
+
+		// --- ATOMIC ACQUISITION (SEC-001) --------------------------------
+		// emdash's KV exposes compareAndSet(key, null, v) which compiles to
+		// INSERT … ON CONFLICT DO NOTHING — a DATABASE-ATOMIC exclusive
+		// create. Two concurrent requests CANNOT both acquire: exactly one
+		// INSERT wins, the other sees applied:false. This closes the
+		// check-then-write race the previous best-effort lock had.
+		const acquired = await acquireRefundLock(kv, lockKey, lockValue);
+		if (!acquired) {
 			throw new Error(
 				"A refund for this payment is already in progress — retry shortly",
 			);
 		}
-		// Fresh, stale, or corrupt lock: (re)claim it.
-		await kv.set(lockKey, {
-			at: new Date().toISOString(),
-			refundRequestId,
-		});
 		try {
 			return await executeMpRefund(ctx, input, credentials, currency);
 		} finally {
 			// Release only if we still own the lock — it may have been
 			// stolen by a later request if we were stuck past the stale
 			// window (e.g. a very slow MP call).
-			const current = parseRefundLock(await kv.get(lockKey));
-			if (current?.refundRequestId === refundRequestId) {
-				await kv.delete(lockKey);
-			}
+			await releaseRefundLock(kv, lockKey, lockValue);
 		}
 	},
 
@@ -655,6 +663,92 @@ function parseRefundLock(value: unknown): { at: number; refundRequestId: string 
 	const at = Date.parse(v.at);
 	if (Number.isNaN(at)) return null;
 	return { at, refundRequestId: v.refundRequestId };
+}
+
+/**
+ * Acquire the per-payment refund lock (SEC-001).
+ *
+ * FAST PATH — atomic, when the KV exposes emdash's CAS primitives:
+ *   1. Try exclusive create: compareAndSet(key, null, value) → INSERT …
+ *      ON CONFLICT DO NOTHING. Exactly one concurrent caller wins; all
+ *      others get applied:false and are rejected. NO check-then-write
+ *      race window exists in this path.
+ *   2. If a lock exists and is STALE (> MP_REFUND_LOCK_STALE_MS, a crash
+ *      leftover), steal it with a CAS on the revision we observed:
+ *      compareAndSet(key, observedRevision, value). If another request
+ *      replaced the lock meanwhile, our steal fails (applied:false) and
+ *      we are rejected — the takeover itself is race-free.
+ *
+ * FALLBACK — best-effort, when the KV only has plain get/set/delete
+ * (unit-test fakes, exotic runtimes): read the lock; if fresh, reject;
+ * if stale/corrupt/absent, write ours. Two truly simultaneous requests
+ * can in theory both pass this fallback (the auditor's SEC-001 finding).
+ * emdash's production KV always provides CAS, so the fallback exists
+ * for compatibility, not for production. Documented in SECURITY_MODEL.
+ */
+async function acquireRefundLock(
+	kv: PluginKV,
+	lockKey: string,
+	lockValue: { at: string; refundRequestId: string },
+): Promise<boolean> {
+	if (typeof kv.compareAndSet === "function") {
+		// 1. Exclusive create — database-atomic.
+		const created = await kv.compareAndSet(lockKey, null, lockValue);
+		if (created?.applied) return true;
+
+		// 2. Existing lock — fresh or stale?
+		const versioned = await kv.getVersioned?.(lockKey);
+		const existing = parseRefundLock(versioned?.value ?? (await kv.get(lockKey)));
+		if (existing && Date.now() - existing.at < MP_REFUND_LOCK_STALE_MS) {
+			return false; // fresh lock owned by someone else → reject
+		}
+		// Stale (crash leftover) or corrupt → steal via CAS on the
+		// revision we just observed. If the lock changed underneath us
+		// (someone else stole it first), the CAS fails and we reject.
+		if (versioned?.revision) {
+			const stolen = await kv.compareAndSet(lockKey, versioned.revision, lockValue);
+			return stolen?.applied === true;
+		}
+		// getVersioned unavailable but compareAndSet exists: rare
+		// half-implemented KV — fall through to the best-effort path.
+	}
+
+	// Best-effort fallback (no CAS available).
+	const existing = parseRefundLock(await kv.get(lockKey));
+	if (existing && Date.now() - existing.at < MP_REFUND_LOCK_STALE_MS) {
+		return false;
+	}
+	await kv.set(lockKey, lockValue);
+	return true;
+}
+
+/**
+ * Release the refund lock, deleting it ONLY when we still own it.
+ *
+ * With CAS: compareAndDelete(key, ourRevision) — a request that was stuck
+ * past the stale window and had its lock stolen can NOT delete the new
+ * owner's lock, because our revision no longer matches. Without CAS:
+ * ownership check by refundRequestId (best-effort, same as before).
+ */
+async function releaseRefundLock(
+	kv: PluginKV,
+	lockKey: string,
+	ourValue: { at: string; refundRequestId: string },
+): Promise<void> {
+	if (typeof kv.compareAndDelete === "function" && typeof kv.getVersioned === "function") {
+		const versioned = await kv.getVersioned(lockKey);
+		if (!versioned) return;
+		const current = parseRefundLock(versioned.value);
+		if (current?.refundRequestId === ourValue.refundRequestId) {
+			await kv.compareAndDelete(lockKey, versioned.revision);
+		}
+		return;
+	}
+	// Best-effort fallback: ownership check by refundRequestId.
+	const current = parseRefundLock(await kv.get(lockKey));
+	if (current?.refundRequestId === ourValue.refundRequestId) {
+		await kv.delete(lockKey);
+	}
 }
 
 /**

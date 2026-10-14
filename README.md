@@ -10,7 +10,7 @@ One `bun add`. One line of config. Done.
 
 [![npm](https://img.shields.io/npm/v/dashcommerce-mercadopago.svg)](https://www.npmjs.com/package/dashcommerce-mercadopago)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-111%2F111-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-117%2F117-brightgreen.svg)](#testing)
 
 **English** · [Español](README.es.md) · [Português](README.pt.md)
 
@@ -39,7 +39,8 @@ DashCommerce store — no core modifications, no forks.
 - **Bank-grade webhook security** — HMAC-SHA256 signature validation with
   timestamp drift limits, IP rate limiting (30 req/min), replay protection
   via event deduplication, and fail-closed defaults.
-- **Idempotent refunds** — KV-backed distributed locks prevent double refunds
+- **Race-safe refunds** — atomic KV locks (database-level CAS) prevent
+  concurrent double refunds; proven by dedicated concurrency tests
   when an admin double-clicks.
 - **Money safety** — integer-only minor-unit arithmetic. No floats ever touch
   a price. Property-based tested.
@@ -119,7 +120,7 @@ only the credentials differ.
 
 ## Testing
 
-111 tests. Zero tolerance for money bugs.
+117 tests. Zero tolerance for money bugs.
 
 ```sh
 bun test
@@ -171,8 +172,11 @@ settings toggle.
 - Amount and currency are re-validated server-side on every notification —
   a tampered preference cannot over/under-charge.
 - Unknown payment statuses are **never** treated as success.
-- Refunds take a KV lock keyed by payment reference; concurrent double-clicks
-  cannot double-refund.
+- Refunds take an atomic KV lock keyed by payment reference (database-level
+  compare-and-set); concurrent double-clicks cannot double-refund, and a
+  slow request can never delete a lock it no longer owns. Verified by
+  tests/concurrency.test.ts (two simultaneous refunds → exactly one
+  reaches Mercado Pago).
 - Credentials are stored encrypted, masked in admin responses (`••••`), and
   never logged.
 
