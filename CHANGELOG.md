@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-14
+
+### Security
+
+- **RES-001** (final hardening audit): every Mercado Pago API call now
+  carries a hard timeout (`MP_API_TIMEOUT_MS` = 20s) via a manual
+  `AbortController` + `setTimeout`, kept strictly below the refund
+  lock's stale window (30s). Previously a hung MP call could outlive
+  the lock's stale takeover and keep executing at Mercado Pago while
+  a second request stole the lock and issued a second refund for the
+  same payment. The timeout aborts both the fetch and the body read,
+  and `refund()`'s finally releases the lock before any thief can
+  take it. The signal propagates through emdash's sandboxed fetch
+  layer (verified against the 1.2.0 dist). An ops/test override may
+  only SHORTEN the timeout (clamped), never extend it past 20s.
+  Note: `AbortSignal.timeout()` is NOT used because Bun 1.3.x does
+  not reliably dispatch "abort" listeners on timeout signals
+  (verified empirically). Guarded by tests/mp-api-timeout.test.ts
+  (invariant + abort + lock release + clean retry) with a controlled
+  mutation test on the invariant.
+
+### Documentation
+
+- **DOC-002**: removed "bank-grade" claims from source comments
+  (which flow into the published .d.ts files), SECURITY_MODEL.md and
+  all three READMEs — replaced with factual descriptions of the
+  actual controls.
+- **DOC-003**: converted 19 broken absolute `file:///C:/Users/...`
+  links in docs/audit/ reports to repo-relative paths (including
+  three malformed links with typos that never worked).
+- **DOC-004**: package.json description no longer claims "Covers
+  all of Latin America" — states the real scope: checkout hosts for
+  Mercado Pago's 7 markets (UY, AR, BR, MX, CL, CO, PE).
+- **DOC-005**: READMEs (EN/ES/PT) now distinguish currencies the code
+  knows how to handle (9) from the ones a given Mercado Pago account
+  can actually charge (depends on the account's country).
+- Added docs/audit/INFORME_POST_REMEDIACION.md and
+  docs/audit/MATRIZ_CIERRE_RELEASE.md (final hardening audit
+  deliverables).
+
 ## [0.1.1] - 2026-10-14
 
 ### Security

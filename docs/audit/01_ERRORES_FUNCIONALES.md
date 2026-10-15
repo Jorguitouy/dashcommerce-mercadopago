@@ -13,7 +13,7 @@ Análisis funcional de los 8 módulos src/, contrastando cada punto de integraci
 
 ### BUG-002 (ALTA) — Allowlist de hosts de checkout de PRODUCCIÓN incompleta: solo Uruguay funciona
 
-- **Archivo**: [src/provider.ts:90-108](file:///c:/Users/servi/Desktop/servicedecalefones/dashcommerce-mercadopago/src/provider.ts#L90-L108) (`MP_CHECKOUT_HOSTS`)
+- **Archivo**: [src/provider.ts:90-108](../../src/provider.ts#L90-L108) (`MP_CHECKOUT_HOSTS`)
 - **Evidencia**: la allowlist incluye `www.mercadopago.com.uy`, `mercadopago.com.uy`, `mercadopago.com`, `mercadolibre.com` para producción, y `sandbox.mercadopago.com.{uy,com,ar,br,mx,cl,co,pe}` + `meli.com` para sandbox. **No incluye** `www.mercadopago.com.ar`, `.com.br`, `.com.mx`, `.com.cl`, `.com.co`, `.com.pe` (los dominios productivos de Argentina, Brasil, México, Chile, Colombia y Perú).
 - **Escenario**: un comercio argentino con token `APP_USR-` (MLA) crea una preferencia; MP responde `init_point: https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=…`; `validateCheckoutUrl` devuelve `null` → `initCheckout` lanza `"Mercado Pago returned an invalid checkout URL"` → **checkout roto para 6 de los 9 mercados soportados** en producción. El error es genérico y no diagnostica el país.
 - **Requisitos previos**: token de producción `APP_USR-` de un comercio fuera de Uruguay.
@@ -25,7 +25,7 @@ Análisis funcional de los 8 módulos src/, contrastando cada punto de integraci
 
 ### BUG-003 (MEDIA) — Contadores de rate-limit nunca se eliminan (crecimiento no acotado)
 
-- **Archivo**: [src/routes.ts:104-150](file:///c:/Users/servi/Desktop/servicedecalefones/dashcommerce-mercadopago/src/routes.ts#L104-L150) (`webhookRateLimit`)
+- **Archivo**: [src/routes.ts:104-150](../../src/routes.ts#L104-L150) (`webhookRateLimit`)
 - **Evidencia**: el comentario dice "keys self-expire by window rotation" — **falso**: `createKVAccess` de emdash (context-CvhgHgSH.mjs, verificado) no implementa TTL en `set()`; las ventanas rotan pero las claves viejas persisten para siempre. El core sí barre sus propias claves (`sweepExpiredLocks` sobre prefijo `lock:`, cron `sweep-stock-locks`) pero no las del plugin.
 - **Escenario**: atacante envía webhooks con `x-forwarded-for` spoofeado (IPs aleatorias) desde N IPs → cada IP×ventana crea una clave KV permanente → crecimiento lineal no acotado de la tabla options → degradación de la DB (SQLite en archivo único) y del rendimiento de `getByPrefix` del KV.
 - **Requisitos previos**: despliegue tras proxy que NO fije `cf-connecting-ip` (el fallback x-forwarded-for es spoofeable) o atacante con botnet de IPs reales.
@@ -36,7 +36,7 @@ Análisis funcional de los 8 módulos src/, contrastando cada punto de integraci
 
 ### BUG-004 (BAJA) — `npm pack` no incluye `skills/` ni `docs/audit/` (inconsistencia menor)
 
-- **Archivo**: [package.json:69-76](file:///c:/Users/survi/Desktop/servicedecalefones/dashcommerce-mercadopago/package.json#L69-L76) (`files`)
+- **Archivo**: [package.json:69-76](../../package.json#L69-L76) (`files`)
 - **Evidencia**: `npm pack --dry-run` (2026-10-14) incluye 37 archivos: dist/, src/, docs/ (6), READMEs, scripts/setup.mjs (auto por `bin`), CHANGELOG, LICENSE. `skills/dashcommerce-mercadopago-setup/SKILL.md` **no se publica** — el README no lo referencia como instalable, así que es aceptable; se documenta como decisión.
 - **Clasificación**: Confirmado (artefacto verificado).
 - **Decisión**: mantener fuera del tarball (skill para uso con agentes en el repo, no runtime). Sin acción.

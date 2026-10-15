@@ -32,8 +32,10 @@
  *   - Refund: POST /v1/payments/{id}/refunds (PLURAL — unlike the Orders API
  *     singular /refund).
  *
- * SECURITY (bank-grade):
- * - All MP API calls go through `ctx.http.fetch` (sandboxed, host-allowlisted).
+ * SECURITY CONTROLS (each verified by tests or empirical evidence):
+ * - All MP API calls go through `ctx.http.fetch` (sandboxed, host-allowlisted)
+ *   and carry a hard timeout (MP_API_TIMEOUT_MS, strictly below the refund
+ *   lock's stale window).
  * - The access token is passed as a Bearer credential and NEVER logged.
  * - `getPaymentStatus` performs a live retrieve of the PAYMENT from MP so a
  *   spoofed webhook payload cannot create an order with a fake amount.
@@ -190,6 +192,25 @@ function hex8(n: number): string {
 	return (n >>> 0).toString(16).padStart(8, "0");
 }
 
+/**
+ * Hard upper bound for a single MP API call. MUST stay strictly below
+ * MP_REFUND_LOCK_STALE_MS (30s): a hung MP refund call must ABORT — and
+ * release the refund lock in refund()'s finally — BEFORE another request
+ * can steal the lock as stale. Without this, a >30s hung call could keep
+ * executing at MP while a second request acquires the stolen lock and
+ * issues a second refund for the same payment (only MP's remaining-amount
+ * backstop would remain). 20s sits far above MP's observed p99 latency
+ * (~10s) and leaves a 10s safety margin before the stale window.
+ *
+ * Implemented with a manual AbortController + setTimeout (see mpApi):
+ * Bun 1.3.x sets .aborted on AbortSignal.timeout() but does not reliably
+ * dispatch "abort" listeners, so a hanging fetch would never settle. The
+ * controller's signal propagates through emdash's sandboxed fetch layer
+ * (verified against the 1.2.0 dist: bufferPluginHttpRequest spreads
+ * `...init` and only strips `duplex`), so the abort reaches the socket.
+ */
+const MP_API_TIMEOUT_MS = 20_000;
+
 /** HTTP helper — always via sandboxed ctx.http, Bearer auth, no secret logging. */
 async function mpApi(
 	ctx: PaymentProviderRuntimeContext,
@@ -205,28 +226,51 @@ async function mpApi(
 	};
 	if (init?.body !== undefined) headers["Content-Type"] = "application/json";
 	if (init?.idempotencyKey) headers["X-Idempotency-Key"] = init.idempotencyKey;
-	const res = await ctx.http.fetch(`${MP_API_BASE}${path}`, {
-		method: init?.method ?? "GET",
-		headers,
-		...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
-	});
-	const text = await res.text();
-	let parsed: unknown = null;
+	// Ops/test override: a ctx-carried timeout may only SHORTEN the call
+	// (clamped to MP_API_TIMEOUT_MS) — it can never push a call past the
+	// refund lock's stale window. Production ctx does not carry this field.
+	const override = (ctx as { mpApiTimeoutMs?: number }).mpApiTimeoutMs;
+	const callTimeoutMs =
+		typeof override === "number" && override > 0
+			? Math.min(override, MP_API_TIMEOUT_MS)
+			: MP_API_TIMEOUT_MS;
+	// Manual AbortController instead of AbortSignal.timeout(): Bun 1.3.x
+	// sets .aborted on timeout signals but does NOT dispatch "abort"
+	// event listeners reliably (verified empirically — a hanging fetch
+	// with an abort listener never settles). A controller + timer is
+	// portable (Node >= 20, Bun, browsers) and lets us clear the timer
+	// deterministically once the call completes.
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), callTimeoutMs);
 	try {
-		parsed = text ? JSON.parse(text) : null;
-	} catch {
-		// Never include the response body in errors — it could contain echoes
-		// of request data. Status code only.
-		throw new Error(`Non-JSON Mercado Pago response (${res.status})`);
+		const res = await ctx.http.fetch(`${MP_API_BASE}${path}`, {
+			method: init?.method ?? "GET",
+			headers,
+			signal: controller.signal,
+			...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+		});
+		// The signal also guards the BODY READ: a server that sends headers
+		// then stalls the stream cannot hold the call past the window either.
+		const text = await res.text();
+		let parsed: unknown = null;
+		try {
+			parsed = text ? JSON.parse(text) : null;
+		} catch {
+			// Never include the response body in errors — it could contain echoes
+			// of request data. Status code only.
+			throw new Error(`Non-JSON Mercado Pago response (${res.status})`);
+		}
+		if (!res.ok) {
+			const message =
+				typeof parsed === "object" && parsed !== null && "message" in parsed
+					? String((parsed as { message?: unknown }).message)
+					: `Mercado Pago API error ${res.status}`;
+			throw new Error(message);
+		}
+		return parsed;
+	} finally {
+		clearTimeout(timer);
 	}
-	if (!res.ok) {
-		const message =
-			typeof parsed === "object" && parsed !== null && "message" in parsed
-				? String((parsed as { message?: unknown }).message)
-				: `Mercado Pago API error ${res.status}`;
-		throw new Error(message);
-	}
-	return parsed;
 }
 
 /**
@@ -812,3 +856,9 @@ async function executeMpRefund(
 }
 
 export { currencyMinorUnitDigits, decimalStringToMinorUnits, minorUnitsToDecimalString };
+/**
+ * Exported for tests and operator documentation: the two time constants
+ * whose ORDER is a correctness invariant (MP_API_TIMEOUT_MS must stay
+ * strictly below MP_REFUND_LOCK_STALE_MS — see MP_API_TIMEOUT_MS's doc).
+ */
+export { MP_API_TIMEOUT_MS, MP_REFUND_LOCK_STALE_MS };

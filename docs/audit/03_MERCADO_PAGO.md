@@ -10,7 +10,7 @@
 
 ### El formato del manifest es correcto, pero la construcción tiene un desvío de la especificación
 
-- **Archivo**: [src/signature.ts:58-74](file:///c:/Users/servi/Desktop/servicedecalefones/dashcommerce-mercadopago/src/signature.ts#L58-L74) (`buildManifest`) + [src/webhook.ts:114-115](file:///c:/Users/servi/Desktop/servicedecalefones/dashcommerce-mercadopago/src/webhook.ts#L114-L115)
+- **Archivo**: [src/signature.ts:58-74](../../src/signature.ts#L58-L74) (`buildManifest`) + [src/webhook.ts:114-115](../../src/webhook.ts#L114-L115)
 - **Especificación oficial MP** (developers.mercadopago — webhook signature validation): el manifest es `id:{data.id};request-id:{x-request-id};ts:{ts};` con la regla explícita: **"If any of these fields (data.id or x-request-id) are missing from the incoming request, omit that entire segment completely rather than leaving it blank"**.
 - **Evidencia del desvío**: `buildManifest` construye SIEMPRE los tres segmentos: `id:${id};request-id:${params.requestId};ts:${ts};`. En webhook.ts, `requestId = request.headers.get("x-request-id") ?? ""` — si MP envía una notificación **sin** el header `x-request-id`, el manifest local es `id:123;request-id:;ts:…;` (segmento con valor vacío) mientras que MP firmó `id:123;ts:…;` (segmento omitido) → HMAC distinto → **400 "Invalid signature" sobre una notificación auténtica**.
 - **Impacto**: fail-closed excesivo — no es explotable para fraude (al revés: es demasiado estricto), pero tiene **impacto financiero operacional**: un pago aprobado cuyo webhook se rechaza → la orden no se crea (el cliente pagó; el stock lock se libera por TTL; el dinero queda sin orden asociada) → requiere reconciliación manual con el draft id. MP reintenta el webhook, pero si el header falta **consistentemente** en ese tipo de notificación (p. ej. ciertos eventos o ciertas configuraciones de la app MP), ningún reintento tiene éxito.
@@ -28,7 +28,7 @@
   - Brasil → `mercadopago.com.br` · México → `mercadopago.com.mx` · Colombia → `mercadopago.com.co`
   - **Chile → `mercadopago.cl`** (¡sin `.com`! — el código lista `sandbox.mercadopago.com.cl` que ni siquiera sigue el patrón real)
   - Perú → `mercadopago.com.pe` · Uruguay → `mercadopago.com.uy`
-- **Contra-allowlist** ([provider.ts:90-108](file:///c:/Users/servi/Desktop/servicedecalefones/dashcommerce-mercadopago/src/provider.ts#L90-L108)): ninguno de los 6 dominios productivos no-UY está incluido. **6 de 9 mercados soportados rompen en producción** con `initCheckout → "Mercado Pago returned an invalid checkout URL"`.
+- **Contra-allowlist** ([provider.ts:90-108](../../src/provider.ts#L90-L108)): ninguno de los 6 dominios productivos no-UY está incluido. **6 de 9 mercados soportados rompen en producción** con `initCheckout → "Mercado Pago returned an invalid checkout URL"`.
 - **Corroboración empírica**: transcript 2026-10-13 con token TEST- UY → `init_point = https://www.mercadopago.com.uy/checkout/v1/redirect?pref_id=2989674893-…` (patrón por país confirmado en vivo).
 - **Clasificación**: Confirmado (doc oficial + patrón verificado en vivo).
 - **Severidad**: **ALTA** (funcional; bloquea el mercado objetivo declarado del plugin).

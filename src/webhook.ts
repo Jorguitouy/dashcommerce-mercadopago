@@ -2,7 +2,7 @@
  * Mercado Pago webhook verification logic (pure, testable).
  *
  * The MP-facing route (routes.ts) receives the webhook, then this module's
- * `verifyMpWebhook` performs the full bank-grade verification sequence:
+ * `verifyMpWebhook` performs the full verification sequence:
  *
  *   1. Method check (POST only) — MP only ever POSTs.
  *   2. Extract `data.id` from the query string (`?data.id=<paymentId>`).

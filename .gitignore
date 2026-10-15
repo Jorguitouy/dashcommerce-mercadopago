@@ -34,3 +34,7 @@ coverage/
 
 # Wrangler / Cloudflare local state
 .wrangler/
+
+# Browser/agent tooling session artifacts
+.playwright-mcp/
+.swarm/

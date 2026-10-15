@@ -1,7 +1,8 @@
 # Mercado Pago — Modelo de Amenazas y Seguridad
 
-> Seguridad "grado bancario": cada control verificado con tests o evidencia
-> empírica. Fecha: 2026-10-13.
+> Cada control listado está verificado con tests automatizados o evidencia
+> empírica contra la API real de Mercado Pago. Fecha: 2026-10-13
+> (actualizado 2026-10-14: timeout en llamadas MP, ver §1.1).
 
 ## 1. Superficie de ataque y controles
 
@@ -19,6 +20,7 @@
 | SSRF vía data.id | paymentId solo se usa en `GET /v1/payments/${encodeURIComponent(id)}` contra MP_API_BASE fijo | code review + fetchCalls test |
 | Secretos en logs | reason strings nunca contienen secret/expected signature | test no-leak |
 | DDoS de live-retrieves | Firma se valida ANTES de cualquier llamada externa | test: 0 fetch calls con firma inválida |
+| Llamada MP colgada (hung call) | Timeout duro de 20s por llamada (`AbortSignal.timeout`), estrictamente menor que la ventana stale del refund lock (30s) — la llamada aborta y libera el lock antes de que otro request pueda robarlo | mp-api-timeout.test.ts (invariante + abort + release) |
 
 ### 1.2 Reinyección interna (routes.ts → core checkout/webhook)
 

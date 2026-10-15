@@ -35,11 +35,14 @@ qualquer loja DashCommerce — sem modificar o core, sem forks.
 - **Checkout Pro (API de Preferências)** — o checkout hosted que os clientes
   latino-americanos já conhecem e confiam.
 - **9 moedas** — ARS, BRL, CLP, COP, MXN, PEN, UYU, mais USD e EUR
-  para vendas cross-border.
-- **Segurança de webhooks nível bancário** — validação de assinatura
+  para vendas cross-border. Nota: são as moedas que este pacote *sabe
+  tratar*; as que a sua conta Mercado Pago pode efetivamente *cobrar*
+  dependem do país da conta. Os hosts de checkout dos 7 países do
+  Mercado Pago (UY, AR, BR, MX, CL, CO, PE) estão na allowlist.
+- **Segurança de webhooks reforçada** — validação de assinatura
   HMAC-SHA256 com limite de drift de timestamp, rate limiting por IP
-  (30 req/min), proteção anti-replay via deduplicação de eventos, e defaults
-  fail-closed.
+  (30 req/min), proteção anti-replay via deduplicação de eventos, e
+  defaults fail-closed.
 - **Reembolsos race-safe** — locks atômicos em KV (CAS a nível de banco de
   dados) previnem reembolsos duplicados concorrentes; comprovado por testes
   de concorrência dedicados.

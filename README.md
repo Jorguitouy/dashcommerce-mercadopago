@@ -35,8 +35,11 @@ DashCommerce store — no core modifications, no forks.
 - **Checkout Pro (Preferences API)** — the hosted checkout customers already
   know and trust across LATAM.
 - **9 currencies** — ARS, BRL, CLP, COP, MXN, PEN, UYU, plus USD and EUR
-  for cross-border sales.
-- **Bank-grade webhook security** — HMAC-SHA256 signature validation with
+  for cross-border sales. Note: these are the currencies this package
+  *knows how to handle*; the ones your Mercado Pago account can actually
+  *charge* depend on your account's country. Checkout hosts for all 7
+  Mercado Pago countries (UY, AR, BR, MX, CL, CO, PE) are allowlisted.
+- **Hardened webhook security** — HMAC-SHA256 signature validation with
   timestamp drift limits, IP rate limiting (30 req/min), replay protection
   via event deduplication, and fail-closed defaults.
 - **Race-safe refunds** — atomic KV locks (database-level CAS) prevent

@@ -5,7 +5,7 @@
 
 ---
 
-## 1. Workflow CI ([.github/workflows/ci.yml](file:///c:/Users/servi/Desktop/servicedecalefones/dashcommerce-mercadopago/.github/workflows/ci.yml))
+## 1. Workflow CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml))
 
 ```yaml
 on:

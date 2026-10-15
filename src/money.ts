@@ -1,5 +1,5 @@
 /**
- * Exact decimal-string arithmetic for Mercado Pago amounts — bank-grade.
+ * Exact decimal-string arithmetic for Mercado Pago amounts.
  *
  * MP's Orders API transmits money as DECIMAL STRINGS ("1500.00"), while the
  * DashCommerce core uses integer minor units (150000). Floating-point math

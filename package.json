@@ -1,7 +1,7 @@
 {
   "name": "dashcommerce-mercadopago",
-  "version": "0.1.1",
-  "description": "Mercado Pago (Checkout Pro) payment provider for DashCommerce - the open-source commerce plugin for EmDash CMS. Covers all of Latin America plus USD/EUR.",
+  "version": "0.1.2",
+  "description": "Mercado Pago (Checkout Pro) payment provider for DashCommerce - the open-source commerce plugin for EmDash CMS. Checkout hosts allowlisted for Mercado Pago's 7 markets (UY, AR, BR, MX, CL, CO, PE); handles ARS, BRL, CLP, COP, MXN, PEN, UYU plus USD/EUR where the account supports them.",
   "type": "module",
   "license": "MIT",
   "author": "Jorge Ferreira <jorgeferreirauy@gmail.com> (https://github.com/Jorguitouy)",

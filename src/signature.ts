@@ -1,5 +1,5 @@
 /**
- * Mercado Pago webhook signature validation — bank-grade security.
+ * Mercado Pago webhook signature validation.
  *
  * MP signs webhooks with HMAC-SHA256 over a manifest string:
  *   id:[data.id];request-id:[x-request-id];ts:[ts];
